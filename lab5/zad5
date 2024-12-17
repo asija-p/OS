@@ -1,0 +1,74 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/wait.h>
+#include <string.h>
+#include <time.h>
+
+#define MSG_KEY 12001
+
+struct mymsgbuf
+{
+    long tip;
+    int broj;
+};
+
+int main(int argc, char ** argv)
+{
+    srand(time(NULL));
+
+    struct mymsgbuf buf;
+   
+
+    int msgid = msgget(MSG_KEY, 0666 | IPC_CREAT);
+
+    int pid = fork();
+
+    if(pid==0) //dete
+    {
+        int suma = 0;
+
+        do
+        {
+            msgrcv(msgid, &buf, sizeof(buf)-sizeof(long), 22, 0);
+            printf("Primio sam %d\n", buf.broj);
+            fflush(stdout);
+            suma += buf.broj;
+
+
+            buf.tip=23;
+            msgsnd(msgid, &buf, sizeof(buf)-sizeof(long), 0);
+
+        } while(buf.broj!=0);
+
+        printf("Zavrsavam...\n");
+
+        printf("Suma je: %d", suma);
+
+        exit(0);
+    }
+    else// rodtelj
+    {
+
+        do
+        {
+            scanf("%d", &buf.broj);
+            buf.tip = 22;
+            printf("salje: %d\n", buf.broj);
+
+            msgsnd(msgid, &buf, sizeof(buf)-sizeof(long), 0);
+            msgrcv(msgid, &buf, sizeof(buf)-sizeof(long), 23, 0);
+
+        }while(buf.broj!=0);
+
+
+        wait(NULL);
+        msgctl(msgid, IPC_RMID, NULL);
+
+    }  
+
+    return 0; 
+}
