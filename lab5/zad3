@@ -5,93 +5,95 @@
 #include <time.h>
 #include <sys/wait.h>
 
-#define BR_ITER 5 // Use 4096 for the real program
-#define N 5       // Use 1024 for the real program
+#define BR_ITER 5  // Number of iterations
+#define N 5        // Numbers written to file
 
-volatile sig_atomic_t parent_ready = 0; // Flag for parent
-volatile sig_atomic_t child_ready = 0;  // Flag for child
+// Global flags for synchronization
+volatile sig_atomic_t parent_ready = 0;
+volatile sig_atomic_t child_ready = 0;
 
 void prikaziNaStdout(int sigNum)
 {
     FILE *f = fopen("prenos.dat", "r");
-    int broj;
+    if (f == NULL) {
+        perror("File opening failed");
+        exit(1);
+    }
 
-    printf("Child: Reading from file:\n");
+    int broj;
     while (fscanf(f, "%d", &broj) != EOF)
-        printf("%d ", broj);
-    printf("\n\n");
+        printf("%d\n", broj);
+
+    printf("\n");
     fclose(f);
 
-    child_ready = 1; // Mark that the child is ready
+    // Parent is ready for the next iteration
+    parent_ready = 1;
 }
 
 void pisiUFajl(int sigNum)
 {
     FILE *f = fopen("prenos.dat", "w");
+    if (f == NULL) {
+        perror("File opening failed");
+        exit(1);
+    }
 
-    printf("Parent: Writing to file...\n");
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < N; ++i)
         fprintf(f, "%d\n", rand() % 101);
 
     fclose(f);
 
-    parent_ready = 1; // Mark that the parent is ready
+    // Child is ready to proceed
+    child_ready = 1;
 }
 
 int main(int argc, char **argv)
 {
     srand(time(NULL));
 
+    // Set up signal handlers
     signal(SIGUSR1, prikaziNaStdout);
     signal(SIGUSR2, pisiUFajl);
 
     int pid = fork();
+    if (pid == -1) {
+        perror("fork failed");
+        exit(1);
+    }
 
-    if (pid > 0)
+    if (pid != 0)
     {
         // Parent process
-        int brIt = 0;
-
-        // Parent sends the first signal to the child to start the sequence
-        printf("Parent: Starting process...\n");
-        kill(pid, SIGUSR1);
-
-        while (brIt < BR_ITER)
+        for (int brIt = 0; brIt < BR_ITER; ++brIt)
         {
-            pause(); // Wait for child's signal (SIGUSR2)
-            if (parent_ready)
-            {
-                parent_ready = 0;
-                ++brIt;
+            // Wait for the child to be ready
+            while (!child_ready);  // Busy wait
+            child_ready = 0;       // Reset flag
 
-                // Signal the child to continue
-                kill(pid, SIGUSR1);
-            }
+            // Write data and signal the child
+            kill(pid, SIGUSR1);
+
+            // Wait for the parent to finish reading
+            pause();
         }
 
-        printf("Parent: Completed all iterations. Terminating child.\n");
-        kill(pid, SIGTERM); // Terminate the child process
-        wait(NULL);         // Wait for child to exit
+        // Kill child after iterations are complete
+        kill(pid, SIGKILL);
+        wait(NULL);
     }
-    else if (pid == 0)
+    else
     {
         // Child process
         while (1)
         {
-            pause(); // Wait for parent's signal (SIGUSR1)
-            if (child_ready)
-            {
-                child_ready = 0;
+            // Signal parent to write to file
+            kill(getppid(), SIGUSR2);
 
-                // Signal the parent to write to file
-                kill(getppid(), SIGUSR2);
-            }
+            // Wait until parent completes its task
+            while (!parent_ready);  // Busy wait
+            parent_ready = 0;       // Reset flag
         }
-    }
-    else
-    {
-        perror("Fork failed");
-        exit(1);
     }
 
     return 0;
