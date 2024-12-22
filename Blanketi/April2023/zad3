@@ -1,0 +1,86 @@
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <unistd.h>
+
+#define KEY 10101
+
+struct mymsgbuf
+{
+    long tip;
+    int broj;
+};
+
+int main()
+{
+
+    int msqid = msgget(KEY, 0666 | IPC_CREAT);
+
+    struct mymsgbuf buf;
+
+    int pid = fork();
+
+    if(pid==0)
+    {
+        //dete
+        int kolikoBrojeva=0;
+
+        while(1)
+        {
+            msgrcv(msqid, &buf, sizeof(buf)-sizeof(long), 1, 0);
+
+            if(buf.broj==0)
+                break;
+
+            printf("Stiglo je %d\n", buf.broj);
+
+            printf("ASCII znak je: %c\n", (char)buf.broj);
+
+            kolikoBrojeva++;
+        }
+
+        printf("Uneseno je %d brojeva", kolikoBrojeva);
+
+        return 0;
+
+    }
+    else
+    {
+        buf.tip=1;
+        //roditelj
+        while(1)
+        {
+            int brojIn;
+
+            scanf("%d", &brojIn);
+            
+            if (brojIn < 0 || brojIn > 127)
+            {
+                printf("\nneogovarajuci broj, poslat je broj 126\n");
+                brojIn = 126;
+            }
+
+            buf.broj=brojIn;
+            
+            msgsnd(msqid, &buf, sizeof(buf)-sizeof(long), 0);
+
+            if(brojIn==0)
+                break;
+
+        }
+
+        wait(NULL);
+
+        msgctl(msqid, IPC_RMID, NULL);
+
+        return 0;
+
+    }
+
+
+}
