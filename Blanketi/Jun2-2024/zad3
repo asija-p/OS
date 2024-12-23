@@ -1,0 +1,88 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/msg.h>
+#include <sys/ipc.h>
+#include <unistd.h>
+
+#define KEY 10101
+
+struct mymsgbuf
+{
+    long tip;
+    int broj;
+};
+
+int main()
+{
+    int msqid = msgget(KEY, 0666 | IPC_CREAT);
+
+    struct mymsgbuf buf;
+
+    int pid=fork();
+
+    if(pid==0)
+    {
+         FILE* f = fopen("zbir.txt", "a");
+
+            if(f==0)
+            {
+                printf("problem sa fajlom");
+                exit(1);
+            }
+
+        //dete
+        while(1)
+        {
+            msgrcv(msqid, &buf, sizeof(buf)-sizeof(long), 1, 0);
+            int suma = 0;
+
+            if(buf.broj==0)
+                break;
+
+            while(buf.broj!=0)
+            {
+                suma += buf.broj%10;
+
+                buf.broj=buf.broj/10;
+            }
+           
+           
+            fprintf(f, "%d\n", suma);
+
+        }
+
+        fclose(f);
+        return 0;
+    }
+    else
+    {
+        do
+        {
+            int broj;
+
+            scanf("%d", &broj);
+
+            if((broj<100 || broj>999) && broj!=0)
+            {
+                broj=100;
+                printf("Mora trocifreni broj, poslat je 100\n");
+            }
+
+            buf.tip=1;
+
+            buf.broj=broj;
+
+            msgsnd(msqid, &buf, sizeof(buf)-sizeof(long), 0);
+        }while(buf.broj!=0);
+
+        wait(NULL);
+
+        msgctl(msqid, IPC_RMID, NULL);
+
+        return 0;
+    }
+}
