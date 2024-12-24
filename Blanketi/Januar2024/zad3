@@ -1,0 +1,120 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/wait.h>
+#include <sys/msg.h>
+#include <unistd.h>
+
+#define KEY 10101
+
+#define LEN 100
+
+struct mymsgbuf
+{
+    long tip;
+    char ime[LEN];
+    char prezime[LEN];
+    int indeks;
+};
+
+void minmax(int msqid, int amfi)
+{
+    struct mymsgbuf msg;
+
+    msgrcv(msqid, &msg, sizeof(msg)-sizeof(long), amfi, 0);
+
+        int minIndex=msg.indeks;
+        int maxIndex=msg.indeks;
+
+        while(1)
+        {
+            msgrcv(msqid, &msg, sizeof(msg)-sizeof(long), amfi, 0);
+
+            if(msg.indeks==-1)
+                break;
+
+            if(minIndex>msg.indeks)
+                minIndex=msg.indeks;
+
+            if(maxIndex<msg.indeks)
+                maxIndex=msg.indeks;
+        }
+
+        printf("Amfiteatar %d: %d - %d\n", amfi, minIndex, maxIndex);
+}
+
+int main()
+{
+    int msqid = msgget(KEY, 0666 | IPC_CREAT);
+
+    struct mymsgbuf buf;
+
+    int a1 = fork();
+
+    if(a1==0)
+    {
+        minmax(msqid, 1);
+        return 0;
+    }
+
+    int a2 =fork();
+
+    if(a2==0)
+    {
+        minmax(msqid, 2);
+        return 0;
+    }
+
+    FILE* f = fopen("prijava.txt", "r");
+
+    if(f==0)
+    {
+        printf("problem sa fajlom.");
+        exit(1);
+    }
+
+    char linija[LEN*10];
+
+    while(fgets(linija, LEN*10, f))
+    {
+        int i =0;
+        char* str = strtok(linija, " ");
+
+        strcpy(buf.ime, str);
+
+        str = strtok(NULL, " ");
+
+        strcpy(buf.prezime, str);
+
+        str = strtok(NULL, " ");
+
+        buf.indeks=atoi(str);
+
+        //printf("ime:%s,prezime:%s,indeks:%d!\n", buf.ime, buf.prezime, buf.indeks);
+        if(buf.indeks<18000)
+            buf.tip=1;
+        else
+            buf.tip=2;
+
+        msgsnd(msqid, &buf, sizeof(buf)-sizeof(long), 0);
+    }
+
+    buf.indeks=-1;
+
+    buf.tip=1;
+    msgsnd(msqid, &buf, sizeof(buf)-sizeof(long), 0);
+    
+    buf.tip=2;
+    msgsnd(msqid, &buf, sizeof(buf)-sizeof(long), 0);
+
+    wait(NULL);
+    wait(NULL);
+
+    msgctl(msqid, IPC_RMID, NULL);
+
+    return 0;
+
+}
