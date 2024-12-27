@@ -1,0 +1,94 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#define N 10
+
+#define S1_KEY 10101
+#define SHARED_MEM_KEY 10101
+
+union semun {
+    int val;
+};
+
+void semV_wait(int semid, int semnum)
+{
+    struct sembuf sop = {semnum, -1, 0};
+    semop(semid, &sop, 1);
+}
+
+void semV_post(int semid, int semnum)
+{
+    struct sembuf sop = {semnum, -1, 0};
+    semop(semid, &sop, 1);  
+}
+
+int main()
+{
+    //kreiranje dva semafora
+    int semid = semget((key_t)S1_KEY, 1, 0666 | IPC_CREAT);
+    //S0
+
+    //inicijalizacija semafora
+
+    //kreiranje deljene memorije velicine dva inta
+    int shmemid = shmget(SHARED_MEM_KEY, sizeof(int), IPC_CREAT | 0666);
+
+    for (int i = 0; i <N; i++)
+    {
+            int pid = fork();
+
+            if(pid==0)
+            {
+
+                int *shmptr = (int*)shmat(shmemid, NULL, 0);
+
+                *shmptr = getpid();
+
+                semV_post(semid, 0);
+
+                shmdt(shmptr);
+
+                return 0;
+
+            }
+            else
+            {
+                int *shmptr = (int *)shmat(shmemid, NULL, 0);
+
+                semV_wait(semid, 0);
+
+                int pidDeteta = *shmptr;
+
+                printf("dete: %d, roditelj: %d -> ", pidDeteta, getpid());
+
+                if(getpid()+1 == pidDeteta)
+                {
+                    printf("Razlikuju se za 1.\n");
+                }
+                else
+                {
+                    printf("Ne razlikuju se za 1.\n");
+                }
+
+                wait(NULL);
+
+                shmdt(shmptr);
+
+
+            }
+    }
+
+    semctl(semid, 0, IPC_RMID, 0);
+
+    shmctl(shmemid, 0, IPC_RMID);
+    
+
+    
+}
