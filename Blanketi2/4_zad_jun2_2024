@@ -1,0 +1,154 @@
+/*
+Zadatak 4. Korišćenjem programskog jezika C napisati Linux program 
+koji kreira dodatni proces ~dete. Proces roditelj iz datoteke brojevi.txt 
+čita niz od 10 celobrojnih vrednosti i upisuje ih u deljenu memoriju. 
+Proces dete čita 10 brojeva iz deljenje memorije i na ekranu štampa njihov
+zbir. Postupak se ponavlja sve dok proces roditelj ne pročita sve brojeve 
+iz datoteke brojevi.txt. Ukoliko broj brojeva u datoteci nije deljiv sa 10, 
+proces roditelj u poslednjoj iteraciji dopunjuje nulama pročitani niz 
+brojeva. Za sinhronizaciju procesa koristiti System V semafore. (25 poena)*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+#include <string.h>
+
+#define SHARED_KEY_MEM 10103
+
+#define SEM_KEY 12345
+
+#define N 10
+
+#define MAX_LEN 256
+
+union semun{
+    int val;
+};
+
+struct data{
+    int num[N];
+    int flag;
+};
+
+void semV_wait(int semid, int semnum)
+{
+    struct sembuf sop = {semnum, -1, 0};
+    semop(semid, &sop, 1);
+}
+
+void semV_post(int semid, int semnum)
+{
+    struct sembuf sop = {semnum, 1, 0};
+    semop(semid, &sop, 1);
+}
+
+int main()
+{
+    int shmemid = shmget(SHARED_KEY_MEM, sizeof(struct data), IPC_CREAT | 0666);
+    
+
+    int semid = semget(SEM_KEY, 2, 0666 | IPC_CREAT);
+
+    union semun semopts;
+    semopts.val = 0;
+    semctl(semid, 0, SETVAL, semopts);
+    semopts.val = 1;
+    semctl(semid, 1, SETVAL, semopts);
+
+    int pid = fork();
+
+    if(pid!=0)
+    {
+        FILE* f = fopen("brojevi.txt", "r");
+        
+        if(f==0)
+        {
+            printf("problem sa fajlom.");
+            exit(1);
+        }
+
+        struct data* shmptr = (struct data*)shmat(shmemid, NULL, 0);
+
+        char red[MAX_LEN];
+
+        shmptr->flag=0;
+
+        while(fgets(red, MAX_LEN, f))
+        {
+            char *token = strtok(red, " ");
+            int i = 0;
+
+            semV_wait(semid, 1);
+
+            while(token != NULL)
+            {
+                int number = atoi(token);
+                token = strtok(NULL, " ");
+                //printf("%d ", number);
+                shmptr->num[i]=number;
+                i++;
+            }
+
+            if(i!=10)
+            {
+                while(i<10)
+                {
+                    shmptr->num[i]=0;
+                    i++;
+                }
+            }
+
+            //printf("\n");
+            semV_post(semid, 0);
+        }
+
+        semV_wait(semid, 1);
+        shmptr->flag=1;
+        semV_post(semid, 0);
+
+        fclose(f);
+
+        shmdt(shmptr);
+
+        wait(NULL);
+
+        semctl(semid, 0, IPC_RMID, 0);
+        semctl(semid, 1, IPC_RMID, 0);
+        shmctl(shmemid, 0, IPC_RMID);
+
+        return 0;
+    }
+    else
+    {
+        struct data* shmptr = (struct data*)shmat(shmemid, NULL, 0);
+
+        while(1)
+        {
+            semV_wait(semid, 0);
+
+            if(shmptr->flag)
+                break;
+            
+            int sum = 0;
+            for(int i = 0; i<N; i++)
+            {
+                sum+=shmptr->num[i];
+                //printf("%d ", shmptr->num[i]);
+                fflush(stdout);
+            }
+            printf("%d\n", sum);
+
+            semV_post(semid, 1);
+        }
+
+        shmdt(shmptr);
+        
+        return 0;
+    }
+}
