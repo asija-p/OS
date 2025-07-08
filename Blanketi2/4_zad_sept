@@ -1,0 +1,121 @@
+/*Zadatak 4. Korišćenjem programskog jezika C napisati Linux 
+program koji kreira dodatni proces dete. Proces roditelj sa 
+standardnog ulaza čita 5 brojeva i upisuje ih u deljenu memoriju. 
+Nakon toga proces dete čita brojeve iz deljenje memorije, sabira 
+ih i upisuje u deljenu memoriju. Proces roditelj čita zbir i 
+prikazuje ga na ekranu a zatim se postupak ponavlja. Postupak se 
+ponavlja sve dok suma brojeva nije jednaka nuli kada i proces dete 
+i proces roditelj izlaze. Za sinhronizaciju procesa koristiti 
+System V semafore. (25 poena)*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/wait.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+
+#define SHARED_KEY_MEM 10109
+
+#define SEM_KEY 10101
+
+#define N 5
+
+union semun
+{
+    int val;
+};
+
+struct data
+{
+    int num[N];
+};
+
+void semV_wait(int semid, int semnum)
+{
+    struct sembuf sop = {semnum, -1, 0};
+    semop(semid, &sop, 1);
+}
+
+void semV_post(int semid, int semnum)
+{
+    struct sembuf sop = {semnum, 1, 0};
+    semop(semid, &sop, 1);
+}
+
+int main()
+{
+    int shmemid = shmget(SHARED_KEY_MEM, sizeof(struct data), IPC_CREAT | 0666);
+
+    int semid = semget(SEM_KEY, 2, 0666 | IPC_CREAT);
+
+    union semun semopts;
+    semopts.val =0;
+    semctl(semid, 0, SETVAL, semopts);
+    semctl(semid, 1, SETVAL, semopts);
+
+    int pid = fork();
+
+    if(pid!=0)
+    {
+        struct data* shmptr = (struct data*)shmat(shmemid, NULL, 0);
+
+
+        while(1)
+        {
+            
+            for(int i = 0; i<N; i++)
+            {
+                scanf("%d", &shmptr->num[i]);
+            }
+
+            semV_post(semid, 0);
+            semV_wait(semid, 1);
+
+            printf("Sum2: %d\n", shmptr->num[0]);
+
+            if(shmptr->num[0]==0)
+                break;
+        }
+
+        shmdt(shmptr);
+        wait(NULL);
+        semctl(semid, 0, IPC_RMID, 0);
+        semctl(semid, 1, IPC_RMID, 0);
+        shmctl(shmemid, 0, IPC_RMID);
+    }
+    else
+    {
+        struct data* shmptr = (struct data*)shmat(shmemid, NULL, 0);
+        
+        while(1)
+        {
+            semV_wait(semid, 0);
+
+            int sum = 0;
+
+            for(int i = 0; i<N; i++)
+            {
+                sum+=shmptr->num[i];
+            }
+            printf("Sum1: %d\n", sum);
+            fflush(stdout);
+
+            shmptr->num[0]=sum;
+
+            semV_post(semid, 1);
+
+            if(shmptr->num[0]==0)
+            {
+                break;
+            }    
+        }
+
+        shmdt(shmptr);
+        return 0;
+
+    }
+}
